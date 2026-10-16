@@ -1,0 +1,8 @@
+{
+  "ps4_ip": "192.168.1.50",
+  "ps4_port": 12800,
+  "server_ip": "192.168.1.10",
+  "server_port": 8080,
+  "web_port": 5000,
+  "pkg_directory": "/path/to/your/pkg/folder"
+}

@@ -1,0 +1,23 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local user configuration (stores personal PS4 & PC IP addresses)
+config.json
+
+# Caches and temporary files
+*.tmp
+*.log
+.cache/
+.pytest_cache/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# IDE and editor settings
+.vscode/
+.idea/
+*.swp
+*.swo
