@@ -57,6 +57,31 @@ class AppState:
         self.task_history = {}
         self.active_task = None
         self._lock = threading.Lock()
+        self._ps4_progress_cache = {}
+        self._ps4_poll_thread = None
+        self._ps4_poll_running = False
+
+    def start_ps4_polling(self, task_id: int):
+        with self._lock:
+            if self._ps4_poll_running:
+                return
+            self._ps4_poll_running = True
+            self._ps4_poll_thread = threading.Thread(target=self._ps4_poll_worker, daemon=True)
+            self._ps4_poll_thread.start()
+
+    def _ps4_poll_worker(self):
+        while self._ps4_poll_running:
+            task_id = self.active_task.get("task_id") if self.active_task else None
+            if not task_id or not (self.active_task and self.active_task.get("running")):
+                time.sleep(1.0)
+                continue
+            try:
+                res = self.ps4.get_progress(task_id)
+                with self._lock:
+                    self._ps4_progress_cache[task_id] = res
+            except Exception:
+                pass
+            time.sleep(1.5)
 
     def update_config(self, new_cfg: dict):
         with self._lock:
@@ -142,78 +167,92 @@ class WebDashboardHandler(SimpleHTTPRequestHandler):
                 self.send_json({"error": "Missing task_id"}, 400)
                 return
 
-            # 1. Query PS4 status
-            ps4_res = state.ps4.get_progress(task_id)
+            state.start_ps4_polling(task_id)
 
-            # 2. Query our zero-copy streaming stats directly from kernel socket
-            active_stream = stats.get_latest()
+            # 1. Non-blocking PS4 cached telemetry
+            with state._lock:
+                ps4_res = state._ps4_progress_cache.get(task_id, {})
+
+            # 2. Real-time zero-copy streaming stats from kernel
+            file_id = state.active_task.get("file_id") if state.active_task else None
+            active_stream = stats.get_stats(file_id)
+
+            total = 0
+            transferred = 0
+            percentage = 0.0
+            speed_mb = 0.0
+            rest_sec = 0
+
+            # Priority 1: Zero-copy kernel streaming stats
+            if active_stream:
+                transferred = active_stream.get("transferred", 0)
+                total = active_stream.get("file_size", 0)
+                percentage = active_stream.get("percentage", 0.0)
+                speed_mb = active_stream.get("speed_mb", 0.0)
+
+            # Priority 2: PS4 reported progress if higher
+            ps4_transferred = ps4_res.get("transferred", 0)
+            ps4_total = ps4_res.get("total", 0)
+            if ps4_transferred > transferred:
+                transferred = ps4_transferred
+            if ps4_total > total:
+                total = ps4_total
+
+            # Priority 3: Fallback total from active_task metadata
+            if total == 0 and state.active_task and state.active_task.get("file_size"):
+                total = state.active_task["file_size"]
+
+            if total > 0:
+                percentage = min(round((transferred / total) * 100, 2), 100.0)
+
+            # Priority 4: Fallback speed based on delta transferred
+            now = time.time()
+            if speed_mb <= 0:
+                hist = state.task_history.get(task_id, {"bytes": transferred, "time": now, "speed": 0.0})
+                elapsed = max(now - hist["time"], 0.001)
+                delta = max(transferred - hist["bytes"], 0)
+                if elapsed >= 0.8:
+                    calc_speed = round((delta / (1024**2)) / elapsed, 1)
+                    speed_mb = calc_speed
+                    state.task_history[task_id] = {"bytes": transferred, "time": now, "speed": calc_speed}
+                else:
+                    speed_mb = hist.get("speed", 0.0)
+
+            # ETA calculation
+            if speed_mb > 0 and total > transferred:
+                rem_bytes = total - transferred
+                rest_sec = int(rem_bytes / (speed_mb * 1024 * 1024))
+            elif ps4_res.get("rest_sec"):
+                rest_sec = ps4_res["rest_sec"]
 
             res = {
                 "status": "success",
                 "task_id": task_id,
-                "transferred": 0,
-                "total": 0,
-                "percentage": 0.0,
-                "speed_mb": 0.0,
-                "rest_sec": 0,
+                "transferred": transferred,
+                "total": total,
+                "percentage": percentage,
+                "speed_mb": speed_mb,
+                "rest_sec": rest_sec,
                 "state": ps4_res.get("state", 0),
                 "ps4_raw": ps4_res
             }
 
-            # Prioritize live socket statistics if active
-            if active_stream:
-                res["transferred"] = active_stream.get("current_offset", 0)
-                res["total"] = active_stream.get("file_size", 0)
-                res["percentage"] = active_stream.get("percentage", 0.0)
-                res["speed_mb"] = active_stream.get("speed_mb", 0.0)
-
-            # If PS4 reports data, combine or override if higher
-            ps4_transferred = ps4_res.get("transferred", 0)
-            ps4_total = ps4_res.get("total", 0)
-            if ps4_transferred > res["transferred"]:
-                res["transferred"] = ps4_transferred
-            if ps4_total > res["total"]:
-                res["total"] = ps4_total
-            if res["total"] > 0:
-                res["percentage"] = round((res["transferred"] / res["total"]) * 100, 2)
-
-            # Fallback speed calculation based on delta transferred
-            now = time.time()
-            if res["speed_mb"] <= 0:
-                hist = state.task_history.get(task_id, {"bytes": res["transferred"], "time": now, "speed": 0.0})
-                elapsed = max(now - hist["time"], 0.001)
-                delta = max(res["transferred"] - hist["bytes"], 0)
-                if elapsed >= 0.8:
-                    calc_speed = round((delta / (1024**2)) / elapsed, 1)
-                    res["speed_mb"] = calc_speed
-                    state.task_history[task_id] = {"bytes": res["transferred"], "time": now, "speed": calc_speed}
-                else:
-                    res["speed_mb"] = hist.get("speed", 0.0)
-
-            # Calculate ETA
-            if res["speed_mb"] > 0 and res["total"] > res["transferred"]:
-                rem_bytes = res["total"] - res["transferred"]
-                res["rest_sec"] = int(rem_bytes / (res["speed_mb"] * 1024 * 1024))
-            elif ps4_res.get("rest_sec"):
-                res["rest_sec"] = ps4_res["rest_sec"]
-
-            # Update state.active_task so state is seamlessly preserved on browser refresh
+            # Update active task state
             if state.active_task and (state.active_task.get("task_id") == task_id or not state.active_task.get("task_id")):
                 state.active_task["task_id"] = task_id
-                state.active_task["percentage"] = res["percentage"]
-                state.active_task["speed_mb"] = res["speed_mb"]
-                state.active_task["transferred_gb"] = f"{res['transferred'] / (1024**3):.2f}"
-                state.active_task["total_gb"] = f"{res['total'] / (1024**3):.2f}"
+                state.active_task["percentage"] = percentage
+                state.active_task["speed_mb"] = speed_mb
+                state.active_task["transferred_gb"] = f"{transferred / (1024**3):.2f}"
+                state.active_task["total_gb"] = f"{total / (1024**3):.2f}"
                 
-                if res["rest_sec"] > 0:
-                    m = res["rest_sec"] // 60
-                    s = res["rest_sec"] % 60
+                if rest_sec > 0:
+                    m = rest_sec // 60
+                    s = rest_sec % 60
                     state.active_task["eta"] = f"{m}m {s}s"
                 else:
                     state.active_task["eta"] = "--"
 
-                # Check completion
-                if res["percentage"] >= 100 or ps4_res.get("state") in (3, 5):
+                if percentage >= 100 or ps4_res.get("state") in (3, 5):
                     res["completed"] = True
                     state.active_task["running"] = False
 
@@ -304,6 +343,7 @@ class WebDashboardHandler(SimpleHTTPRequestHandler):
                 state.active_task = {
                     "running": True,
                     "task_id": task_id,
+                    "file_id": file_id,
                     "title": meta.get("title") or filename,
                     "title_id": meta.get("title_id", ""),
                     "category": meta.get("category", "Package"),
@@ -318,6 +358,7 @@ class WebDashboardHandler(SimpleHTTPRequestHandler):
                     "eta": "Calculating...",
                     "start_time": time.time()
                 }
+                state.start_ps4_polling(task_id)
 
                 self.send_json({
                     "status": "success",

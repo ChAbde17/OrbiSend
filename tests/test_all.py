@@ -113,5 +113,45 @@ class TestOrbisSend(unittest.TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    def test_streaming_stats_telemetry(self):
+        from core.server import stats
+        file_id = "test_fid_123"
+        file_path = "/tmp/test_game.pkg"
+        total_size = 100 * 1024 * 1024  # 100 MB
+
+        # Record 10MB chunk sent at offset 0
+        stats.record_chunk(file_id, file_path, 0, 10 * 1024 * 1024, total_size)
+        st = stats.get_stats(file_id)
+        self.assertIsNotNone(st)
+        self.assertEqual(st["transferred"], 10 * 1024 * 1024)
+        self.assertEqual(st["percentage"], 10.0)
+        self.assertGreater(st["speed_mb"], 0.0)
+
+        # Record another 15MB chunk sent at offset 10MB
+        stats.record_chunk(file_id, file_path, 10 * 1024 * 1024, 15 * 1024 * 1024, total_size)
+        st = stats.get_stats(file_id)
+        self.assertEqual(st["transferred"], 25 * 1024 * 1024)
+        self.assertEqual(st["percentage"], 25.0)
+
+    def test_ps4_client_get_progress_parsing(self):
+        client = PS4Client("127.0.0.1", 12800)
+        # Mock _post response with flatz RPI hex & field combinations
+        client._post = lambda endpoint, payload, timeout: {
+            "status": "success",
+            "error": 0,
+            "transferred_total": "0x40000000",  # 1GB in hex
+            "length_total": "0x100000000",      # 4GB in hex
+            "transferred": 0,                   # current piece is 0
+            "length": 1048576,                  # piece length
+            "state": 1,
+            "rest_sec": 120
+        }
+        res = client.get_progress(123)
+        self.assertEqual(res["status"], "success")
+        self.assertEqual(res["transferred"], 0x40000000)
+        self.assertEqual(res["total"], 0x100000000)
+        self.assertEqual(res["percentage"], 25.0)
+        self.assertEqual(res["rest_sec"], 120)
+
 if __name__ == "__main__":
     unittest.main()

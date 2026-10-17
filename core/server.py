@@ -5,6 +5,7 @@ import socket
 import threading
 from urllib.parse import unquote
 import sys
+import hashlib
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 class SilentThreadingHTTPServer(ThreadingHTTPServer):
@@ -16,46 +17,81 @@ class SilentThreadingHTTPServer(ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
 class StreamingStats:
-    """Thread-safe statistics tracking for active transfers."""
+    """Thread-safe statistics tracking for active transfers using sliding-window throughput."""
     def __init__(self):
         self._lock = threading.Lock()
-        self.active_transfers = {}
+        self.transfers = {}  # file_id -> dict
+        self._history = []   # list of (timestamp, byte_count) for sliding-window speed
+        self._active_file_id = None
+
+    def record_chunk(self, file_id: str, file_path: str, offset: int, chunk_len: int, total_size: int):
+        now = time.time()
+        with self._lock:
+            self._active_file_id = file_id
+            self._history.append((now, chunk_len))
+
+            # Prune samples older than 2.0 seconds
+            cutoff = now - 2.0
+            self._history = [h for h in self._history if h[0] >= cutoff]
+
+            t = self.transfers.setdefault(file_id, {
+                "file_id": file_id,
+                "file_path": file_path,
+                "filename": os.path.basename(file_path),
+                "file_size": total_size,
+                "transferred": 0,
+                "max_offset": 0,
+                "speed_mb": 0.0,
+                "percentage": 0.0,
+                "last_update": now,
+            })
+
+            t["max_offset"] = max(t["max_offset"], offset + chunk_len)
+            t["transferred"] = t["max_offset"]
+            if total_size > 0:
+                t["file_size"] = total_size
+            t["last_update"] = now
+
+            if t["file_size"] > 0:
+                t["percentage"] = min(round((t["transferred"] / t["file_size"]) * 100, 2), 100.0)
+
+            # Instantaneous speed over sliding window (last 2 seconds)
+            if self._history:
+                window_bytes = sum(h[1] for h in self._history)
+                dt = max(now - self._history[0][0], 0.3)
+                t["speed_mb"] = round((window_bytes / (1024 * 1024)) / dt, 1)
 
     def update(self, transfer_id: str, bytes_sent: int, total_bytes: int, speed_mb: float, current_offset: int = 0, file_size: int = 0):
-        with self._lock:
-            total = file_size or total_bytes
-            pct = round((current_offset / total * 100), 2) if total > 0 else 0.0
-            self.active_transfers[transfer_id] = {
-                "bytes_sent": bytes_sent,
-                "current_offset": current_offset,
-                "file_size": total,
-                "total_bytes": total_bytes,
-                "speed_mb": round(speed_mb, 1),
-                "percentage": pct,
-                "updated_at": time.time(),
-            }
+        """Compatibility wrapper for update."""
+        self.record_chunk(transfer_id, transfer_id, current_offset, bytes_sent, file_size or total_bytes)
 
     def remove(self, transfer_id: str):
-        with self._lock:
-            self.active_transfers.pop(transfer_id, None)
+        """No-op to prevent wiping transfer telemetry on socket renegotiation."""
+        pass
 
-    def get_latest(self):
+    def get_stats(self, file_id: str = None) -> dict:
+        now = time.time()
         with self._lock:
-            now = time.time()
-            valid = {k: v for k, v in self.active_transfers.items() if now - v["updated_at"] <= 10}
-            if not valid:
-                return None
-            # Return the transfer updated most recently
-            latest_key = max(valid.keys(), key=lambda k: valid[k]["updated_at"])
-            return valid[latest_key]
+            target_id = file_id or self._active_file_id
+            if not target_id or target_id not in self.transfers:
+                if self.transfers:
+                    target_id = max(self.transfers.keys(), key=lambda k: self.transfers[k]["last_update"])
+                else:
+                    return None
 
-    def get_all(self):
+            t = dict(self.transfers[target_id])
+            # If no bytes received in last 2.5 seconds, instantaneous speed is 0
+            if now - t["last_update"] > 2.5:
+                t["speed_mb"] = 0.0
+            t["current_offset"] = t["transferred"]
+            return t
+
+    def get_latest(self) -> dict:
+        return self.get_stats()
+
+    def get_all(self) -> dict:
         with self._lock:
-            now = time.time()
-            stale = [k for k, v in self.active_transfers.items() if now - v["updated_at"] > 10]
-            for k in stale:
-                del self.active_transfers[k]
-            return dict(self.active_transfers)
+            return {k: self.get_stats(k) for k in self.transfers}
 
 stats = StreamingStats()
 
@@ -72,21 +108,23 @@ class HighPerformanceRangeHandler(BaseHTTPRequestHandler):
         # Suppress verbose standard HTTP request logs to keep terminal clean
         pass
 
-    def translate_path(self, path: str) -> str:
+    def resolve_file(self, path: str):
         clean = unquote(path.split("?")[0].split("#")[0]).lstrip("/")
 
         # Check registered alias: /pkg/<id>.pkg
         if clean.startswith("pkg/"):
-            file_id = clean[4:].rstrip(".pkg")
+            file_id = clean[4:].removesuffix(".pkg")
             if file_id in self.file_registry:
-                return self.file_registry[file_id]
+                return file_id, self.file_registry[file_id]
 
         # Check directly in default PKG directory
         direct_path = os.path.join(self.pkg_directory, clean)
-        if os.path.isfile(direct_path):
-            return direct_path
+        file_id = hashlib.md5(direct_path.encode("utf-8")).hexdigest()[:12]
+        return file_id, direct_path
 
-        return direct_path
+    def translate_path(self, path: str) -> str:
+        _, filepath = self.resolve_file(path)
+        return filepath
 
     def do_HEAD(self):
         self.handle_file_request(send_body=False)
@@ -95,7 +133,7 @@ class HighPerformanceRangeHandler(BaseHTTPRequestHandler):
         self.handle_file_request(send_body=True)
 
     def handle_file_request(self, send_body=True):
-        filepath = self.translate_path(self.path)
+        file_id, filepath = self.resolve_file(self.path)
 
         if not os.path.isfile(filepath):
             self.send_error(404, "File not found")
@@ -155,12 +193,7 @@ class HighPerformanceRangeHandler(BaseHTTPRequestHandler):
         except Exception:
             pass
 
-        transfer_id = os.path.basename(filepath)
         sock_fd = self.connection.fileno()
-
-        start_time = time.time()
-        last_log = start_time
-        bytes_transferred = 0
 
         try:
             with open(filepath, "rb") as f:
@@ -172,48 +205,37 @@ class HighPerformanceRangeHandler(BaseHTTPRequestHandler):
                 has_sendfile = hasattr(os, "sendfile")
 
                 while remaining > 0:
-                    chunk_to_send = min(remaining, 8 * 1024 * 1024)  # 8MB bursts
-                    
+                    chunk_to_send = min(remaining, 4 * 1024 * 1024)  # 4MB bursts
+                    sent = 0
+
                     if has_sendfile:
                         try:
                             sent = os.sendfile(sock_fd, file_fd, current_offset, chunk_to_send)
                             if sent == 0:
                                 break
-                            current_offset += sent
-                            bytes_transferred += sent
-                            remaining -= sent
-                        except (OSError, AttributeError):
-                            # Fallback to buffered transfer if sendfile unsupported on socket
-                            has_sendfile = False
-                    
-                    if not has_sendfile:
-                        f.seek(current_offset)
-                        chunk = f.read(min(remaining, 2 * 1024 * 1024))
-                        if not chunk:
+                        except (BrokenPipeError, ConnectionResetError):
                             break
-                        self.wfile.write(chunk)
-                        current_offset += len(chunk)
-                        bytes_transferred += len(chunk)
-                        remaining -= len(chunk)
+                        except (OSError, AttributeError):
+                            has_sendfile = False
 
-                    now = time.time()
-                    if now - last_log >= 0.5:
-                        elapsed = max(now - start_time, 0.001)
-                        speed_mb = (bytes_transferred / (1024**2)) / elapsed
-                        stats.update(
-                            transfer_id=transfer_id,
-                            bytes_sent=bytes_transferred,
-                            total_bytes=content_length,
-                            speed_mb=speed_mb,
-                            current_offset=current_offset,
-                            file_size=file_size
-                        )
-                        last_log = now
+                    if not has_sendfile:
+                        try:
+                            f.seek(current_offset)
+                            chunk = f.read(min(remaining, 1024 * 1024))
+                            if not chunk:
+                                break
+                            self.wfile.write(chunk)
+                            sent = len(chunk)
+                        except (BrokenPipeError, ConnectionResetError):
+                            break
+
+                    if sent > 0:
+                        stats.record_chunk(file_id, filepath, current_offset, sent, file_size)
+                        current_offset += sent
+                        remaining -= sent
 
         except (BrokenPipeError, ConnectionResetError):
             pass
-        finally:
-            stats.remove(transfer_id)
 
 class PKGServerManager:
     """Manages the background HTTP file streaming server thread."""
