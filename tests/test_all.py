@@ -78,5 +78,40 @@ class TestOrbisSend(unittest.TestCase):
             if os.path.exists(test_file):
                 os.remove(test_file)
 
+    def test_scan_directory_deep_and_shallow(self):
+        import tempfile
+        import shutil
+
+        temp_dir = tempfile.mkdtemp(prefix="orbis_scan_test_")
+        try:
+            # Create files in root
+            root_pkg = os.path.join(temp_dir, "game_root.pkg")
+            txt_file = os.path.join(temp_dir, "notes.txt")
+            with open(root_pkg, "wb") as f:
+                f.write(b"PKG_DATA")
+            with open(txt_file, "wb") as f:
+                f.write(b"TEXT_DATA")
+
+            # Create subdirectories with nested .pkg files
+            sub_dir = os.path.join(temp_dir, "updates", "v1.01")
+            os.makedirs(sub_dir, exist_ok=True)
+            nested_pkg = os.path.join(sub_dir, "patch.pkg")
+            with open(nested_pkg, "wb") as f:
+                f.write(b"PATCH_DATA")
+
+            # 1. Shallow Scan: Only game_root.pkg
+            shallow_res = PKGParser.scan_directory(temp_dir, deep_scan=False)
+            self.assertEqual(len(shallow_res), 1)
+            self.assertEqual(os.path.basename(shallow_res[0]), "game_root.pkg")
+
+            # 2. Deep Scan: Both game_root.pkg and patch.pkg
+            deep_res = PKGParser.scan_directory(temp_dir, deep_scan=True)
+            self.assertEqual(len(deep_res), 2)
+            filenames = [os.path.basename(p) for p in deep_res]
+            self.assertIn("game_root.pkg", filenames)
+            self.assertIn("patch.pkg", filenames)
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
 if __name__ == "__main__":
     unittest.main()

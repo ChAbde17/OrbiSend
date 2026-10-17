@@ -23,7 +23,8 @@ def load_config() -> dict:
         "server_ip": "192.168.1.32",
         "server_port": 8080,
         "web_port": 5000,
-        "pkg_directory": "/home/abde/Documents/PKG"
+        "pkg_directory": "/home/abde/Documents/PKG",
+        "deep_scan": False
     }
     if os.path.exists(CONFIG_FILE):
         try:
@@ -249,26 +250,28 @@ class WebDashboardHandler(SimpleHTTPRequestHandler):
 
         if path == "/api/scan":
             scan_dir = payload.get("directory", state.config["pkg_directory"])
+            deep_scan = payload.get("deep_scan", state.config.get("deep_scan", False))
             if not os.path.isdir(scan_dir):
                 self.send_json({"error": f"Directory not found: {scan_dir}", "packages": []}, 404)
                 return
 
             packages = []
             try:
-                files = [f for f in os.listdir(scan_dir) if f.lower().endswith(".pkg")]
-                files.sort()
-                for fn in files:
-                    full_path = os.path.join(scan_dir, fn)
+                pkg_files = PKGParser.scan_directory(scan_dir, deep_scan=deep_scan)
+                for full_path in pkg_files:
                     meta = PKGParser.parse_pkg(full_path, extract_icon=True)
                     file_id = hashlib.md5(full_path.encode("utf-8")).hexdigest()[:12]
                     state.stream_server.register_package(file_id, full_path)
                     meta["file_id"] = file_id
+                    rel_path = os.path.relpath(full_path, scan_dir)
+                    meta["rel_path"] = rel_path
+                    meta["subdir"] = os.path.dirname(rel_path) if os.path.dirname(rel_path) else ""
                     packages.append(meta)
             except Exception as e:
                 self.send_json({"error": str(e), "packages": []}, 500)
                 return
 
-            self.send_json({"status": "success", "packages": packages, "count": len(packages)})
+            self.send_json({"status": "success", "packages": packages, "count": len(packages), "deep_scan": deep_scan})
             return
 
         if path == "/api/install":

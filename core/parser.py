@@ -171,3 +171,27 @@ class PKGParser:
                 meta["title_id"] = parts[1].split("_")[0]
 
         return meta
+
+    @classmethod
+    def scan_directory(cls, directory: str, deep_scan: bool = False) -> list[str]:
+        """
+        Scans a directory for .pkg files.
+        If deep_scan is True, recursively searches all subdirectories.
+        """
+        if not os.path.isdir(directory):
+            return []
+
+        pkg_files = []
+        if deep_scan:
+            for root, _, filenames in os.walk(directory):
+                for fn in filenames:
+                    if fn.lower().endswith(".pkg"):
+                        pkg_files.append(os.path.join(root, fn))
+        else:
+            for fn in os.listdir(directory):
+                full_path = os.path.join(directory, fn)
+                if os.path.isfile(full_path) and fn.lower().endswith(".pkg"):
+                    pkg_files.append(full_path)
+
+        pkg_files.sort()
+        return pkg_files
