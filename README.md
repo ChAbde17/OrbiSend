@@ -78,6 +78,8 @@ Standard HTTP daemon servers crash or log noisy stack traces (`BrokenPipeError`)
   Parses raw `\x7FCNT` container headers directly on disk to read `param.sfo` metadata (Game Title, Title ID, Category, Software Version) and extracts embedded `icon0.png` cover art as base64 data URIs.
 * **🌐 Intelligent Subnet & Interface Discovery**:
   Automatically probes local network routing tables to detect the true physical IP address matching the PS4's subnet, safely filtering out Docker, loopback, and virtual VM interfaces.
+* **🗂️ Shallow & Recursive Deep Scan**:
+  Quickly toggle between top-level folder scanning and full recursive directory traversal to catalog multi-part base games, updates, and DLC packages tucked in subfolders.
 * **🛡️ Collision-Free Sanitized Aliasing**:
   Translates complex package filenames into clean `/pkg/<file_id>.pkg` routes, shielding the PS4's `sceHttp` client from encoding errors.
 * **📊 Live Telemetry & Persistent Progress**:
@@ -100,7 +102,7 @@ Browse your local package library with high-resolution game icons, Title IDs, ve
 +-----------------------------------------------------------------------------------+
 | 🎮 OrbisSend Pro                     [● PS4 Connected: 192.168.1.34]  [⚙ Settings] |
 +-----------------------------------------------------------------------------------+
-| [/home/abde/Documents/PKG                                ]  [🔍 Scan Directory]   |
+| [/home/abde/Documents/PKG                 ]  [● Deep Scan]  [🔍 Scan Directory]   |
 +-----------------------------------------------------------------------------------+
 |                                                                                   |
 |  +--------------------+  +--------------------+  +--------------------+           |
@@ -226,7 +228,8 @@ Settings are saved in `config.json` and can be edited directly or through the We
   "ps4_port": 12800,
   "server_ip": "192.168.1.32",
   "server_port": 5000,
-  "pkg_directory": "/home/abde/Documents/PKG"
+  "pkg_directory": "/home/abde/Documents/PKG",
+  "deep_scan": false
 }
 ```
 
@@ -237,6 +240,7 @@ Settings are saved in `config.json` and can be edited directly or through the We
 | `server_ip` | Host PC IP address (auto-detected on launch) | `auto-detected` |
 | `server_port` | Web dashboard & streaming server port | `5000` |
 | `pkg_directory`| Default directory scanned for `.pkg` files | `~/Documents/PKG` |
+| `deep_scan` | Recursively scan subdirectories for `.pkg` files | `false` |
 
 ---
 
