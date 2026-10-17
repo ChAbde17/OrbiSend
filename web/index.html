@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>OrbisSend — PS4 PKG Manager</title>
+  <title>OrbiSend — PS4 PKG Manager</title>
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Alpine.js -->
@@ -47,7 +47,7 @@
         </div>
         <div>
           <div class="flex items-center space-x-2">
-            <span class="font-extrabold text-xl tracking-tight text-white">Orbis<span class="text-brand-500">Send</span></span>
+            <span class="font-extrabold text-xl tracking-tight text-white">Orbi<span class="text-brand-500">Send</span></span>
             <span class="text-xs px-2 py-0.5 rounded-full bg-brand-500/10 text-brand-400 font-mono font-medium border border-brand-500/20">Pro</span>
           </div>
           <p class="text-xs text-gray-400">High-Performance PS4 PKG Streaming</p>
@@ -455,7 +455,7 @@
 
         async restoreActiveTask() {
           // 1. Instant load from localStorage so UI does not flicker on F5
-          const cached = localStorage.getItem('orbis_active_task');
+          const cached = localStorage.getItem('orbisend_active_task') || localStorage.getItem('orbis_active_task');
           if (cached) {
             try {
               const parsed = JSON.parse(cached);
@@ -472,10 +472,11 @@
               const data = await res.json();
               if (data && data.running) {
                 this.activeTask = Object.assign(this.activeTask, data);
-                localStorage.setItem('orbis_active_task', JSON.stringify(this.activeTask));
+                localStorage.setItem('orbisend_active_task', JSON.stringify(this.activeTask));
                 this.pollActiveTask();
               } else if (this.activeTask.running && (!data || !data.running)) {
                 this.activeTask.running = false;
+                localStorage.removeItem('orbisend_active_task');
                 localStorage.removeItem('orbis_active_task');
               }
             }
@@ -671,11 +672,12 @@
                 }
 
                 // Persist current progress so page refresh is 100% seamless
-                localStorage.setItem('orbis_active_task', JSON.stringify(this.activeTask));
+                localStorage.setItem('orbisend_active_task', JSON.stringify(this.activeTask));
 
                 if (data.percentage >= 100 || data.completed) {
                   this.showToast('Installation Complete!', 'success');
                   this.activeTask.running = false;
+                  localStorage.removeItem('orbisend_active_task');
                   localStorage.removeItem('orbis_active_task');
                 }
               }
@@ -710,6 +712,7 @@
             body: JSON.stringify({ action: 'stop', task_id: this.activeTask.task_id })
           });
           this.activeTask.running = false;
+          localStorage.removeItem('orbisend_active_task');
           localStorage.removeItem('orbis_active_task');
           this.showToast('Task Cancelled', 'info');
         },

@@ -413,7 +413,7 @@ def run_app():
     local_ip = cfg.get("server_ip") or NetworkManager.get_local_ip_for_target(cfg["ps4_ip"])
 
     print("\n" + "=" * 60)
-    print("  OrbisSend — PS4 Remote PKG Manager (Pro)")
+    print("  OrbiSend — PS4 Remote PKG Manager (Pro)")
     print("=" * 60)
     print(f"  Web Dashboard:  http://localhost:{web_port}")
     print(f"  LAN Access:     http://{local_ip}:{web_port}")
@@ -425,7 +425,7 @@ def run_app():
     try:
         dashboard_server.serve_forever()
     except KeyboardInterrupt:
-        print("\nShutting down OrbisSend...")
+        print("\nShutting down OrbiSend...")
         state.stream_server.stop()
         dashboard_server.shutdown()
         print("Done.")

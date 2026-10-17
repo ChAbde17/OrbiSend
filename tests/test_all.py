@@ -12,7 +12,7 @@ from core.network import NetworkManager
 from core.server import PKGServerManager
 from core.ps4_client import PS4Client
 
-class TestOrbisSend(unittest.TestCase):
+class TestOrbiSend(unittest.TestCase):
 
     def test_sfo_parser(self):
         # Create a synthetic valid param.sfo binary buffer
@@ -52,7 +52,7 @@ class TestOrbisSend(unittest.TestCase):
 
     def test_range_server_streaming(self):
         # Create a 1MB test file
-        test_file = "/tmp/orbis_test.pkg"
+        test_file = "/tmp/orbisend_test.pkg"
         test_content = b"0123456789ABCDEF" * (64 * 1024)  # 1MB
         with open(test_file, "wb") as f:
             f.write(test_content)
@@ -82,7 +82,7 @@ class TestOrbisSend(unittest.TestCase):
         import tempfile
         import shutil
 
-        temp_dir = tempfile.mkdtemp(prefix="orbis_scan_test_")
+        temp_dir = tempfile.mkdtemp(prefix="orbisend_scan_test_")
         try:
             # Create files in root
             root_pkg = os.path.join(temp_dir, "game_root.pkg")
