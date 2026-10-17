@@ -93,57 +93,19 @@ Standard HTTP daemon servers crash or log noisy stack traces (`BrokenPipeError`)
 
 ## 📸 Screenshots & UI Showcase
 
-> *Screenshots are stored in `docs/screenshots/` (placeholder assets below).*
-
 ### 1. Main Dashboard & Package Library
-Browse your local package library with high-resolution game icons, Title IDs, version tags, and one-click installation triggers:
+Browse your local package library with high-resolution game icons, Title IDs, version tags, live transfer telemetry, and one-click installation triggers:
 
-```
-+-----------------------------------------------------------------------------------+
-| 🎮 OrbisSend Pro                     [● PS4 Connected: 192.168.1.34]  [⚙ Settings] |
-+-----------------------------------------------------------------------------------+
-| [/home/abde/Documents/PKG                 ]  [● Deep Scan]  [🔍 Scan Directory]   |
-+-----------------------------------------------------------------------------------+
-|                                                                                   |
-|  +--------------------+  +--------------------+  +--------------------+           |
-|  | [ GAME COVER ART ] |  | [ GAME COVER ART ] |  | [ GAME COVER ART ] |           |
-|  | Bloodborne         |  | Ghost of Tsushima  |  | Horizon Zero Dawn  |           |
-|  | CUSA03173 • v01.00 |  | CUSA16972 • v02.18 |  | CUSA07320 • v01.52 |           |
-|  | 29.83 GB           |  | 44.12 GB           |  | 48.16 GB           |           |
-|  | [ Send to PS4 ]    |  | [ Send to PS4 ]    |  | [ Send to PS4 ]    |           |
-|  +--------------------+  +--------------------+  +--------------------+           |
-|                                                                                   |
-+-----------------------------------------------------------------------------------+
-```
+<p align="center">
+  <img src="docs/screenshots/dashboard.png" alt="OrbisSend Main Dashboard" width="95%" />
+</p>
 
-### 2. Live Transfer Monitor (Zero-Copy Sendfile)
-Real-time transfer telemetry tracking kernel byte offsets, transfer speed, and remaining time:
+### 2. Connection & Network Settings Modal
+Easily configure console network endpoints, ports, host streaming interface, and default directory directly from the UI:
 
-```
-+-----------------------------------------------------------------------------------+
-| 🚀 Active Installation: Bloodborne (CUSA03173)                                    |
-| [=======================================>-----------------------] 64.2%          |
-| Transferred: 19.15 GB / 29.83 GB | Speed: 38.45 MB/s | ETA: 4m 38s                |
-| [ ⏸ Pause ]  [ ▶ Resume ]  [ ⏹ Cancel ]                                         |
-+-----------------------------------------------------------------------------------+
-```
-
-### 3. Connection & Configuration Modal
-Easily configure console network endpoints and server parameters directly from the UI without modifying config files manually:
-
-```
-+----------------------------------------------------+
-| ⚙️ PS4 Connection & Network Settings               |
-+----------------------------------------------------+
-| PS4 IP Address:        [ 192.168.1.34           ]  |
-| PS4 RPI Port:          [ 12800                  ]  |
-| Host Server IP:        [ 192.168.1.32           ]  |
-| Streaming Port:        [ 5000                   ]  |
-| Default PKG Directory: [ /home/abde/Documents/PKG] |
-|                                                    |
-| [ Test Connection ]                  [ Save Config ]|
-+----------------------------------------------------+
-```
+<p align="center">
+  <img src="docs/screenshots/settings_modal.png" alt="OrbisSend Settings Modal" width="95%" />
+</p>
 
 ---
 
