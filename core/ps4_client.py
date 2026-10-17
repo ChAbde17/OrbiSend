@@ -58,37 +58,54 @@ class PS4Client:
         return self._post("/api/unregister_task", {"task_id": task_id}, timeout=10.0)
 
     def get_progress(self, task_id: int) -> dict:
-        res = self._post("/api/get_task_progress", {"task_id": task_id}, timeout=5.0)
-        
-        # If explicit error or failure reported by PS4
-        if res.get("status") == "fail" and res.get("error", 0) not in (0, "0", None):
-            return res
+        res = self._post("/api/get_task_progress", {"task_id": task_id}, timeout=3.0)
 
         def parse_val(v):
-            if isinstance(v, int):
-                return v
+            if v is None:
+                return 0
+            if isinstance(v, (int, float)):
+                return int(v)
             if isinstance(v, str):
-                try:
-                    return int(v, 16 if v.startswith("0x") else 10)
-                except ValueError:
+                v = v.strip()
+                if not v:
                     return 0
+                if v.startswith("0x") or v.startswith("0X"):
+                    try:
+                        return int(v, 16)
+                    except ValueError:
+                        return 0
+                try:
+                    return int(v)
+                except ValueError:
+                    try:
+                        return int(v, 16)
+                    except ValueError:
+                        return 0
             return 0
 
-        # Support all field variants (transferred, transferred_total, trans_bytes)
-        transferred = parse_val(res.get("transferred") or res.get("transferred_total") or res.get("trans_bytes") or 0)
-        total = parse_val(res.get("length") or res.get("length_total") or res.get("total") or res.get("total_bytes") or 0)
+        # Check all possible fields and pick the maximum non-zero value
+        t_total = parse_val(res.get("transferred_total"))
+        t_trans = parse_val(res.get("transferred"))
+        t_bytes = parse_val(res.get("trans_bytes"))
+        transferred = max(t_total, t_trans, t_bytes)
+
+        l_total = parse_val(res.get("length_total"))
+        l_len = parse_val(res.get("length"))
+        l_bytes = parse_val(res.get("total_bytes"))
+        total = max(l_total, l_len, l_bytes)
+
         error = parse_val(res.get("error", 0))
         state = parse_val(res.get("state", 0))
         rest_sec = parse_val(res.get("rest_sec", 0))
 
-        percentage = (transferred / total * 100) if total > 0 else 0.0
+        percentage = round((transferred / total * 100), 2) if total > 0 else 0.0
 
         return {
-            "status": "success",
+            "status": "success" if error == 0 else "fail",
             "task_id": task_id,
             "transferred": transferred,
             "total": total,
-            "percentage": round(percentage, 2),
+            "percentage": percentage,
             "state": state,
             "rest_sec": rest_sec,
             "error": error,

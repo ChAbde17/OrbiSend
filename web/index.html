@@ -658,7 +658,9 @@
                 this.activeTask.percentage = data.percentage;
                 this.activeTask.speed_mb = data.speed_mb || 0;
                 this.activeTask.transferred_gb = (data.transferred / (1024**3)).toFixed(2);
-                this.activeTask.total_gb = (data.total / (1024**3)).toFixed(2);
+                if (data.total > 0) {
+                  this.activeTask.total_gb = (data.total / (1024**3)).toFixed(2);
+                }
 
                 if (data.rest_sec > 0) {
                   const m = Math.floor(data.rest_sec / 60);
