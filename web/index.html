@@ -185,13 +185,14 @@
         </div>
 
         <!-- Deep Scan Toggle -->
-        <label class="flex items-center space-x-2 px-3 py-2 rounded-xl bg-darkbg border border-darkborder cursor-pointer select-none hover:border-brand-500/50 transition flex-shrink-0"
+        <label class="flex items-center space-x-2 px-3 py-2 rounded-xl border cursor-pointer select-none transition flex-shrink-0"
+               :class="config.deep_scan ? 'bg-brand-500/15 border-brand-500/50 text-brand-400 shadow-sm shadow-brand-500/10' : 'bg-darkbg border-darkborder text-gray-400 hover:border-gray-600'"
                title="Toggle Deep Scan: Recursively search all subdirectories for .pkg files">
           <input type="checkbox" x-model="config.deep_scan" @change="saveConfigLocally()" class="sr-only">
-          <div class="w-7 h-4 bg-gray-700 rounded-full transition-colors relative" :class="{'bg-brand-500': config.deep_scan}">
+          <div class="w-7 h-4 rounded-full transition-colors relative" :class="config.deep_scan ? 'bg-brand-500' : 'bg-gray-700'">
             <div class="w-3 h-3 bg-white rounded-full absolute top-0.5 left-0.5 transition-transform" :class="{'translate-x-3': config.deep_scan}"></div>
           </div>
-          <span class="text-xs font-semibold" :class="config.deep_scan ? 'text-brand-400' : 'text-gray-400'">
+          <span class="text-xs font-semibold" :class="config.deep_scan ? 'text-brand-400 font-bold' : 'text-gray-400'">
             Deep Scan
           </span>
         </label>
