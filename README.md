@@ -1,7 +1,7 @@
-# 🚀 OrbisSend — High-Performance PS4 Remote PKG Manager
+# 🚀 OrbiSend — High-Performance PS4 Remote PKG Manager
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/solid/gamepad.svg" width="80" height="80" alt="OrbisSend Logo" />
+  <img src="https://raw.githubusercontent.com/FortAwesome/Font-Awesome/6.x/svgs/solid/gamepad.svg" width="80" height="80" alt="OrbiSend Logo" />
 </p>
 
 <p align="center">
@@ -60,8 +60,8 @@ The PlayStation 4 internal HTTP download daemon (`sceHttp` / Flatz RPI) is notor
 ### 4. Broken Pipe Exceptions & State Loss on Browser Refresh
 Standard HTTP daemon servers crash or log noisy stack traces (`BrokenPipeError`) whenever a client terminates a connection prematurely (e.g., closing a browser tab or when the console pauses an active chunk). Furthermore, existing web tools track download progress purely in ephemeral browser memory; refreshing the page resets the progress bar and speedometer to zero, leaving the user with no visibility into the actual ongoing transfer.
 
-### 🎯 The Solution: OrbisSend
-**OrbisSend** was engineered from the ground up to solve every single one of these problems:
+### 🎯 The Solution: OrbiSend
+**OrbiSend** was engineered from the ground up to solve every single one of these problems:
 * **Zero Wine/Mono dependency**: Pure, asynchronous Python with zero heavy native build dependencies.
 * **Kernel-level Zero-Copy Streaming**: Direct kernel-to-socket transfer via `os.sendfile(2)` and tuned 4MB TCP buffers (`SO_SNDBUF` & `TCP_NODELAY`).
 * **Virtual Collision-Free Routing**: Aliased, sanitized endpoints (`/pkg/<file_id>.pkg`) guarantee 100% compatibility with Sony's URL parser.
@@ -80,6 +80,10 @@ Standard HTTP daemon servers crash or log noisy stack traces (`BrokenPipeError`)
   Automatically probes local network routing tables to detect the true physical IP address matching the PS4's subnet, safely filtering out Docker, loopback, and virtual VM interfaces.
 * **🗂️ Shallow & Recursive Deep Scan**:
   Quickly toggle between top-level folder scanning and full recursive directory traversal to catalog multi-part base games, updates, and DLC packages tucked in subfolders.
+* **📦 Sequential Installation Queue & Smart Patch Chaining**:
+  Batch queue multiple PKGs with automatic dependency ordering (Base Game → Updates sorted by version → DLCs) and sequential unattended background installs.
+* **🎛️ Interactive Dashboard Sorting & Multi-Select**:
+  Sort library by Title, File Size, Type, or CUSA ID with ascending/descending toggles, and select all packages for one-click batch queuing.
 * **🛡️ Collision-Free Sanitized Aliasing**:
   Translates complex package filenames into clean `/pkg/<file_id>.pkg` routes, shielding the PS4's `sceHttp` client from encoding errors.
 * **📊 Live Telemetry & Persistent Progress**:
@@ -97,14 +101,14 @@ Standard HTTP daemon servers crash or log noisy stack traces (`BrokenPipeError`)
 Browse your local package library with high-resolution game icons, Title IDs, version tags, live transfer telemetry, and one-click installation triggers:
 
 <p align="center">
-  <img src="docs/screenshots/dashboard.png" alt="OrbisSend Main Dashboard" width="95%" />
+  <img src="docs/screenshots/dashboard.png" alt="OrbiSend Main Dashboard" width="95%" />
 </p>
 
 ### 2. Connection & Network Settings Modal
 Easily configure console network endpoints, ports, host streaming interface, and default directory directly from the UI:
 
 <p align="center">
-  <img src="docs/screenshots/settings_modal.png" alt="OrbisSend Settings Modal" width="95%" />
+  <img src="docs/screenshots/settings_modal.png" alt="OrbiSend Settings Modal" width="95%" />
 </p>
 
 ---
@@ -208,7 +212,7 @@ Settings are saved in `config.json` and can be edited directly or through the We
 
 ## 🗺️ Roadmap & Cross-Platform Expansion
 
-While OrbisSend was originally conceived to deliver first-class performance on **Linux**, active development is underway to expand its reach and user experience:
+While OrbiSend was originally conceived to deliver first-class performance on **Linux**, active development is underway to expand its reach and user experience:
 
 - [ ] **Cross-Platform Kernel Streaming**:
   - [x] Linux: Native `os.sendfile(2)` zero-copy support.
@@ -218,9 +222,11 @@ While OrbisSend was originally conceived to deliver first-class performance on *
   - [ ] **AppImage**: Single-click standalone executable for all Linux distributions without installing dependencies.
   - [ ] **Flatpak**: Sandboxed distribution via Flathub with native desktop portal integration.
   - [ ] **Native Desktop Shell**: Lightweight native application window using `pywebview` / Tauri v2 to eliminate the need for an external browser.
-- [ ] **Enhanced Installation Queue**:
-  - [ ] Drag-and-drop batch installation queue.
-  - [ ] Automatic multi-part patch chaining (e.g. base game + v01.01 + DLC sequence).
+- [x] **Enhanced Installation Queue**:
+  - [x] Sequential background batch installation queue with auto-advance.
+  - [x] Automatic multi-part patch chaining (Base Game + Patches + DLC sequence).
+  - [x] Multi-select batch controls ("Select All" and "Add Selected to Queue").
+  - [x] Interactive dashboard sorting (Name, Size, Type, Title ID, Subdirectory).
   - [ ] Scheduled background installs with automatic PC shutdown upon completion.
 
 ---
@@ -257,7 +263,7 @@ Commits must follow the [Conventional Commits](https://www.conventionalcommits.o
 
 ## 🧪 Running Tests
 
-OrbisSend includes a fully automated unit test suite covering binary parsing, networking logic, API client structures, and HTTP range streaming:
+OrbiSend includes a fully automated unit test suite covering binary parsing, networking logic, API client structures, and HTTP range streaming:
 
 ```bash
 python3 tests/test_all.py

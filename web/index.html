@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>OrbisSend — PS4 PKG Manager</title>
+  <title>OrbiSend — PS4 PKG Manager</title>
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Alpine.js -->
@@ -47,7 +47,7 @@
         </div>
         <div>
           <div class="flex items-center space-x-2">
-            <span class="font-extrabold text-xl tracking-tight text-white">Orbis<span class="text-brand-500">Send</span></span>
+            <span class="font-extrabold text-xl tracking-tight text-white">Orbi<span class="text-brand-500">Send</span></span>
             <span class="text-xs px-2 py-0.5 rounded-full bg-brand-500/10 text-brand-400 font-mono font-medium border border-brand-500/20">Pro</span>
           </div>
           <p class="text-xs text-gray-400">High-Performance PS4 PKG Streaming</p>
@@ -72,6 +72,16 @@
                 class="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-medium border border-gray-700 transition">
           <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="scanning ? 'animate-spin text-brand-400' : ''"></i>
           <span x-text="scanning ? 'Scanning...' : 'Rescan'"></span>
+        </button>
+
+        <!-- Queue Drawer Trigger -->
+        <button @click="showQueue = true; fetchQueue()"
+                class="relative flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-brand-600/10 hover:bg-brand-600/20 text-brand-400 text-xs font-medium border border-brand-500/30 transition">
+          <i data-lucide="layers" class="w-3.5 h-3.5"></i>
+          <span>Queue</span>
+          <span x-show="queue.length > 0" x-text="queue.length"
+                class="px-1.5 py-0.2 rounded-full bg-brand-500 text-white text-[10px] font-bold"></span>
+          <span x-show="queueRunning" class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
         </button>
 
         <!-- Settings Modal Trigger -->
@@ -194,21 +204,73 @@
       </div>
 
       <!-- Search & Filters -->
-      <div class="flex items-center space-x-3 w-full md:w-auto">
-        <div class="relative w-full md:w-64">
+      <div class="flex flex-wrap items-center gap-2.5 w-full md:w-auto">
+        <!-- Search Input -->
+        <div class="relative flex-1 md:w-56 min-w-[150px]">
           <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-500">
             <i data-lucide="search" class="w-4 h-4"></i>
           </div>
-          <input type="text" x-model="searchQuery" placeholder="Filter by Title or CUSA..."
+          <input type="text" x-model="searchQuery" placeholder="Filter Title / CUSA..."
                  class="w-full pl-10 pr-4 py-2 bg-darkbg border border-darkborder rounded-xl text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:border-brand-500 font-mono transition">
         </div>
 
+        <!-- Category Dropdown -->
         <select x-model="categoryFilter" class="bg-darkbg border border-darkborder rounded-xl px-3 py-2 text-sm text-gray-300 focus:outline-none focus:border-brand-500 font-medium">
-          <option value="all">All Packages</option>
+          <option value="all">All Types</option>
           <option value="Base Game">Base Games</option>
-          <option value="Update / Patch">Updates / Patches</option>
+          <option value="Update / Patch">Patches</option>
           <option value="Add-on / DLC">DLCs</option>
         </select>
+
+        <!-- Sort By Dropdown -->
+        <select x-model="sortBy" class="bg-darkbg border border-darkborder rounded-xl px-3 py-2 text-sm text-gray-300 focus:outline-none focus:border-brand-500 font-medium">
+          <option value="title">Sort by Name</option>
+          <option value="file_size">Sort by Size</option>
+          <option value="category">Sort by Type</option>
+          <option value="title_id">Sort by CUSA</option>
+          <option value="subdir">Sort by Folder</option>
+        </select>
+
+        <!-- Sort Direction Toggle -->
+        <button @click="sortAsc = !sortAsc"
+                class="px-2.5 py-2 bg-darkbg border border-darkborder hover:border-brand-500 rounded-xl text-gray-300 transition flex items-center justify-center"
+                :title="sortAsc ? 'Ascending (A-Z / Smallest first). Click for Descending.' : 'Descending (Z-A / Largest first). Click for Ascending.'">
+          <span x-text="sortAsc ? '▲' : '▼'" class="text-xs font-mono text-brand-400 font-bold"></span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Batch Selection & Action Bar -->
+    <div x-show="filteredPackages().length > 0" x-cloak
+         class="bg-darkcard border border-darkborder rounded-2xl px-5 py-3 flex flex-wrap items-center justify-between gap-3 shadow-md">
+      <div class="flex items-center space-x-3">
+        <label class="flex items-center space-x-2 cursor-pointer select-none text-xs font-semibold text-gray-300">
+          <input type="checkbox" x-model="selectAll" @change="toggleSelectAll()"
+                 class="w-4 h-4 rounded border-gray-600 bg-gray-800 text-brand-500 focus:ring-brand-500 cursor-pointer">
+          <span>Select All (<span x-text="filteredPackages().length"></span>)</span>
+        </label>
+        <span x-show="selectedPkgs.length > 0" class="text-xs text-brand-400 font-mono font-medium">
+          (<span x-text="selectedPkgs.length"></span> selected)
+        </span>
+      </div>
+
+      <div class="flex items-center space-x-3">
+        <!-- Auto-Chain toggle -->
+        <label class="flex items-center space-x-2 text-xs text-gray-400 cursor-pointer select-none hover:text-gray-200 transition"
+               title="Automatically order queued packages: Base Game -> Update/Patch -> DLC sequence">
+          <input type="checkbox" x-model="autoChain" class="w-3.5 h-3.5 rounded border-gray-600 bg-gray-800 text-brand-500 focus:ring-brand-500 cursor-pointer">
+          <span class="flex items-center space-x-1">
+            <i data-lucide="link" class="w-3 h-3 text-brand-400"></i>
+            <span>Auto-Chain Sequence</span>
+          </span>
+        </label>
+
+        <!-- Add Selected to Queue Button -->
+        <button @click="addSelectedToQueue()" :disabled="selectedPkgs.length === 0"
+                class="px-3.5 py-1.5 rounded-xl bg-brand-600 hover:bg-brand-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold flex items-center space-x-1.5 transition shadow-lg shadow-brand-500/20">
+          <i data-lucide="list-plus" class="w-3.5 h-3.5"></i>
+          <span>Add Selected to Queue</span>
+        </button>
       </div>
     </div>
 
@@ -230,7 +292,15 @@
         <div class="bg-darkcard border border-darkborder hover:border-brand-500/50 rounded-2xl overflow-hidden shadow-lg transition-all duration-300 flex flex-col group hover:-translate-y-1">
           
           <!-- Card Header & Icon Banner -->
-          <div class="p-5 flex items-start space-x-4 border-b border-darkborder/60 bg-gradient-to-b from-darkbg/50 to-transparent">
+          <div class="p-5 flex items-start space-x-4 border-b border-darkborder/60 bg-gradient-to-b from-darkbg/50 to-transparent relative">
+            <!-- Card Selection Checkbox -->
+            <div class="absolute top-3.5 right-3.5 z-10">
+              <input type="checkbox"
+                     :value="pkg.file_path"
+                     x-model="selectedPkgs"
+                     class="w-4 h-4 rounded border-gray-600 bg-gray-800 text-brand-500 focus:ring-brand-500 cursor-pointer">
+            </div>
+
             <!-- Icon0 Thumbnail -->
             <div class="w-20 h-20 rounded-xl overflow-hidden bg-gray-800 flex-shrink-0 border border-darkborder shadow-md">
               <template x-if="pkg.icon_base64">
@@ -245,7 +315,7 @@
             </div>
 
             <!-- Title & Metadata -->
-            <div class="flex-1 min-w-0">
+            <div class="flex-1 min-w-0 pr-6">
               <div class="flex items-center space-x-2">
                 <span class="text-[10px] px-2 py-0.5 rounded font-mono font-semibold"
                       :class="{
@@ -285,18 +355,189 @@
               </template>
             </div>
 
-            <!-- Install Button -->
-            <button @click="installPackage(pkg)" :disabled="installing"
-                    class="w-full py-2.5 px-4 rounded-xl bg-brand-600 hover:bg-brand-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center justify-center space-x-2 transition shadow-md shadow-brand-500/10">
-              <i data-lucide="upload-cloud" class="w-4 h-4"></i>
-              <span>Send to PS4</span>
-            </button>
+            <!-- Card Actions: Install Now + Add to Queue -->
+            <div class="grid grid-cols-2 gap-2.5">
+              <button @click="installPackage(pkg)" :disabled="installing"
+                      class="py-2.5 px-3 rounded-xl bg-brand-600 hover:bg-brand-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center justify-center space-x-1.5 transition shadow-md shadow-brand-500/10">
+                <i data-lucide="upload-cloud" class="w-3.5 h-3.5"></i>
+                <span>Install</span>
+              </button>
+              <button @click="addSingleToQueue(pkg)"
+                      class="py-2.5 px-3 rounded-xl bg-gray-800 hover:bg-gray-700 hover:border-brand-500/40 border border-darkborder text-gray-200 text-xs font-semibold flex items-center justify-center space-x-1.5 transition">
+                <i data-lucide="list-plus" class="w-3.5 h-3.5 text-brand-400"></i>
+                <span>+ Queue</span>
+              </button>
+            </div>
           </div>
         </div>
       </template>
     </div>
 
   </main>
+
+  <!-- Enhanced Installation Queue Slide-Over Drawer -->
+  <div x-show="showQueue" x-cloak class="fixed inset-0 z-50 overflow-hidden" aria-labelledby="queue-drawer-title" role="dialog" aria-modal="true">
+    <div class="absolute inset-0 overflow-hidden">
+      <!-- Backdrop -->
+      <div x-show="showQueue"
+           x-transition:enter="ease-out duration-300" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
+           x-transition:leave="ease-in duration-200" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+           class="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity" @click="showQueue = false"></div>
+
+      <div class="pointer-events-none fixed inset-y-0 right-0 flex max-w-full pl-10">
+        <div x-show="showQueue"
+             x-transition:enter="transform transition ease-in-out duration-300" x-transition:enter-start="translate-x-full" x-transition:enter-end="translate-x-0"
+             x-transition:leave="transform transition ease-in-out duration-200" x-transition:leave-start="translate-x-0" x-transition:leave-end="translate-x-full"
+             class="pointer-events-auto w-screen max-w-md bg-darkcard border-l border-darkborder shadow-2xl flex flex-col">
+
+          <!-- Drawer Header -->
+          <div class="p-6 border-b border-darkborder flex items-center justify-between bg-darkbg/50">
+            <div class="flex items-center space-x-3">
+              <div class="w-9 h-9 rounded-xl bg-brand-600/20 text-brand-400 flex items-center justify-center border border-brand-500/30">
+                <i data-lucide="layers" class="w-5 h-5"></i>
+              </div>
+              <div>
+                <h3 class="text-base font-bold text-white flex items-center space-x-2">
+                  <span>Installation Queue</span>
+                  <span class="text-xs px-2 py-0.5 rounded-full bg-brand-500/20 text-brand-400 font-mono" x-text="queue.length"></span>
+                </h3>
+                <p class="text-xs text-gray-400">Sequential Background PKG Installer</p>
+              </div>
+            </div>
+            <button @click="showQueue = false" class="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-gray-800 transition">
+              <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+          </div>
+
+          <!-- Queue Control Bar -->
+          <div class="px-6 py-3 border-b border-darkborder bg-darkcard/80 flex items-center justify-between gap-2">
+            <div class="flex items-center space-x-2">
+              <button @click="queueRunning ? stopQueue() : startQueue()"
+                      class="px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition shadow-md"
+                      :class="queueRunning ? 'bg-amber-600 hover:bg-amber-500 text-white shadow-amber-500/20' : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-500/20'">
+                <i :data-lucide="queueRunning ? 'pause' : 'play'" class="w-3.5 h-3.5"></i>
+                <span x-text="queueRunning ? 'Pause Queue' : 'Start Queue'"></span>
+              </button>
+
+              <button @click="chainQueue()" :disabled="queue.length <= 1"
+                      class="px-3 py-1.5 rounded-xl bg-gray-800 hover:bg-gray-700 disabled:opacity-40 text-gray-200 text-xs font-semibold flex items-center space-x-1.5 border border-darkborder transition"
+                      title="Reorder items automatically: Base Game -> Update/Patch -> DLC">
+                <i data-lucide="link" class="w-3.5 h-3.5 text-brand-400"></i>
+                <span>Auto-Chain</span>
+              </button>
+            </div>
+
+            <button @click="clearQueue()" :disabled="queue.length === 0"
+                    class="p-1.5 rounded-lg text-rose-400 hover:bg-rose-500/10 disabled:opacity-30 disabled:hover:bg-transparent transition"
+                    title="Clear all queued items">
+              <i data-lucide="trash-2" class="w-4 h-4"></i>
+            </button>
+          </div>
+
+          <!-- Queue Items List -->
+          <div class="flex-1 overflow-y-auto p-4 space-y-2.5">
+            <!-- Empty Queue State -->
+            <div x-show="queue.length === 0" class="py-16 text-center space-y-3">
+              <div class="w-12 h-12 rounded-2xl bg-gray-800 flex items-center justify-center mx-auto text-gray-500">
+                <i data-lucide="inbox" class="w-6 h-6"></i>
+              </div>
+              <p class="text-sm font-medium text-gray-400">Queue is currently empty</p>
+              <p class="text-xs text-gray-500 max-w-xs mx-auto">
+                Use the checkboxes on packages to select multiple PKGs, or click "+ Queue" on any package card.
+              </p>
+            </div>
+
+            <!-- Queue Cards -->
+            <template x-for="(item, idx) in queue" :key="item.file_id || idx">
+              <div class="p-3.5 rounded-xl bg-darkbg border transition flex items-center justify-between gap-3 group"
+                   :class="item.status === 'installing' ? 'border-brand-500/50 shadow-md shadow-brand-500/10' : 'border-darkborder hover:border-gray-700'">
+                
+                <!-- Order Index & Icon -->
+                <div class="flex items-center space-x-3 min-w-0 flex-1">
+                  <div class="w-6 text-center font-mono text-xs text-gray-500 font-bold" x-text="idx + 1"></div>
+
+                  <div class="w-11 h-11 rounded-lg overflow-hidden bg-gray-800 flex-shrink-0 border border-darkborder">
+                    <template x-if="item.icon_base64">
+                      <img :src="item.icon_base64" class="w-full h-full object-cover">
+                    </template>
+                    <template x-if="!item.icon_base64">
+                      <div class="w-full h-full flex items-center justify-center text-gray-500">
+                        <i data-lucide="disc" class="w-5 h-5"></i>
+                      </div>
+                    </template>
+                  </div>
+
+                  <div class="min-w-0 flex-1">
+                    <div class="flex items-center space-x-1.5">
+                      <span class="text-[9px] px-1.5 py-0.2 rounded font-mono font-semibold"
+                            :class="{
+                              'bg-blue-500/20 text-blue-400': item.category === 'Base Game',
+                              'bg-purple-500/20 text-purple-400': item.category === 'Update / Patch',
+                              'bg-amber-500/20 text-amber-400': item.category === 'Add-on / DLC',
+                              'bg-gray-700/50 text-gray-300': !['Base Game', 'Update / Patch', 'Add-on / DLC'].includes(item.category)
+                            }"
+                            x-text="item.category"></span>
+                      <template x-if="item.version">
+                        <span class="text-[9px] text-gray-400 font-mono" x-text="'v' + item.version"></span>
+                      </template>
+                    </div>
+                    <h4 class="text-xs font-bold text-white truncate mt-0.5" :title="item.title" x-text="item.title"></h4>
+                    <p class="text-[10px] text-gray-500 font-mono truncate" x-text="(item.title_id || '') + ' • ' + formatBytes(item.file_size)"></p>
+                  </div>
+                </div>
+
+                <!-- Status & Action Buttons -->
+                <div class="flex items-center space-x-1.5 flex-shrink-0">
+                  <!-- Status Indicator -->
+                  <template x-if="item.status === 'installing'">
+                    <span class="flex items-center space-x-1 text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                      <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping"></span>
+                      <span>Installing</span>
+                    </span>
+                  </template>
+                  <template x-if="item.status === 'completed'">
+                    <span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-medium">Done</span>
+                  </template>
+                  <template x-if="item.status === 'failed'">
+                    <span class="text-[10px] px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/30 font-medium">Failed</span>
+                  </template>
+
+                  <!-- Move Up / Down Buttons -->
+                  <div class="flex flex-col space-y-0.5">
+                    <button @click="reorderQueue(idx, idx - 1)" :disabled="idx === 0"
+                            class="p-1 rounded text-gray-400 hover:text-white disabled:opacity-20 hover:bg-gray-800 transition"
+                            title="Move Up">
+                      <i data-lucide="chevron-up" class="w-3.5 h-3.5"></i>
+                    </button>
+                    <button @click="reorderQueue(idx, idx + 1)" :disabled="idx === queue.length - 1"
+                            class="p-1 rounded text-gray-400 hover:text-white disabled:opacity-20 hover:bg-gray-800 transition"
+                            title="Move Down">
+                      <i data-lucide="chevron-down" class="w-3.5 h-3.5"></i>
+                    </button>
+                  </div>
+
+                  <!-- Remove Button -->
+                  <button @click="removeFromQueue(item.file_id)"
+                          class="p-1.5 text-gray-400 hover:text-rose-400 rounded-lg hover:bg-rose-500/10 transition"
+                          title="Remove from queue">
+                    <i data-lucide="trash" class="w-3.5 h-3.5"></i>
+                  </button>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <!-- Drawer Footer -->
+          <div class="p-4 border-t border-darkborder bg-darkbg/60 text-center">
+            <p class="text-[11px] text-gray-500">
+              PS4 streams directly from OrbiSend's kernel zero-copy server.
+            </p>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- Settings Slide-Over Modal -->
   <div x-show="showSettings" x-cloak class="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
@@ -406,12 +647,20 @@
     function app() {
       return {
         showSettings: false,
+        showQueue: false,
         ps4Online: false,
         scanning: false,
         loading: false,
         installing: false,
         searchQuery: '',
         categoryFilter: 'all',
+        sortBy: 'title',
+        sortAsc: true,
+        selectedPkgs: [],
+        selectAll: false,
+        autoChain: true,
+        queue: [],
+        queueRunning: false,
         packages: [],
         availableIps: [],
         config: {
@@ -442,6 +691,7 @@
           this.loadConfig();
           this.checkStatus();
           this.restoreActiveTask();
+          this.fetchQueue();
           this.scanPackages();
 
           // Poll PS4 status every 15s
@@ -450,12 +700,19 @@
           // Poll active task progress every 1s
           setInterval(() => this.pollActiveTask(), 1000);
 
+          // Poll queue status periodically
+          setInterval(() => {
+            if (this.queueRunning || this.showQueue || this.queue.length > 0) {
+              this.fetchQueue();
+            }
+          }, 2500);
+
           this.$nextTick(() => lucide.createIcons());
         },
 
         async restoreActiveTask() {
           // 1. Instant load from localStorage so UI does not flicker on F5
-          const cached = localStorage.getItem('orbis_active_task');
+          const cached = localStorage.getItem('orbisend_active_task') || localStorage.getItem('orbis_active_task');
           if (cached) {
             try {
               const parsed = JSON.parse(cached);
@@ -472,10 +729,11 @@
               const data = await res.json();
               if (data && data.running) {
                 this.activeTask = Object.assign(this.activeTask, data);
-                localStorage.setItem('orbis_active_task', JSON.stringify(this.activeTask));
+                localStorage.setItem('orbisend_active_task', JSON.stringify(this.activeTask));
                 this.pollActiveTask();
               } else if (this.activeTask.running && (!data || !data.running)) {
                 this.activeTask.running = false;
+                localStorage.removeItem('orbisend_active_task');
                 localStorage.removeItem('orbis_active_task');
               }
             }
@@ -589,8 +847,16 @@
           } catch (e) {}
         },
 
+        toggleSelectAll() {
+          if (this.selectAll) {
+            this.selectedPkgs = this.filteredPackages().map(p => p.file_path);
+          } else {
+            this.selectedPkgs = [];
+          }
+        },
+
         filteredPackages() {
-          return this.packages.filter(p => {
+          let list = this.packages.filter(p => {
             const matchesSearch = !this.searchQuery || 
               (p.title && p.title.toLowerCase().includes(this.searchQuery.toLowerCase())) ||
               (p.title_id && p.title_id.toLowerCase().includes(this.searchQuery.toLowerCase())) ||
@@ -601,6 +867,165 @@
 
             return matchesSearch && matchesCategory;
           });
+
+          return list.sort((a, b) => {
+            let valA = a[this.sortBy] ?? '';
+            let valB = b[this.sortBy] ?? '';
+
+            let cmp = 0;
+            if (this.sortBy === 'file_size') {
+              cmp = (Number(valA) || 0) - (Number(valB) || 0);
+            } else {
+              cmp = String(valA).localeCompare(String(valB), undefined, { numeric: true, sensitivity: 'base' });
+            }
+            return this.sortAsc ? cmp : -cmp;
+          });
+        },
+
+        async fetchQueue() {
+          try {
+            const res = await fetch('/api/queue');
+            if (res.ok) {
+              const data = await res.json();
+              this.queue = data.queue || [];
+              this.queueRunning = data.running || false;
+              this.$nextTick(() => lucide.createIcons());
+            }
+          } catch (e) {
+            console.error('Failed to fetch queue', e);
+          }
+        },
+
+        async addSelectedToQueue() {
+          if (this.selectedPkgs.length === 0) return;
+          try {
+            const res = await fetch('/api/queue/add', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ paths: this.selectedPkgs, auto_chain: this.autoChain })
+            });
+            const data = await res.json();
+            if (data.status === 'success') {
+              this.showToast(`Added ${data.added_count} package(s) to queue`, 'success');
+              this.selectedPkgs = [];
+              this.selectAll = false;
+              this.showQueue = true;
+              await this.fetchQueue();
+            } else {
+              this.showToast('Failed to add selected to queue', 'error');
+            }
+          } catch (e) {
+            this.showToast(e.message, 'error');
+          }
+        },
+
+        async addSingleToQueue(pkg) {
+          try {
+            const res = await fetch('/api/queue/add', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ paths: [pkg.file_path], auto_chain: false })
+            });
+            const data = await res.json();
+            if (data.status === 'success') {
+              this.showToast(`Added "${pkg.title}" to queue`, 'success');
+              await this.fetchQueue();
+            } else {
+              this.showToast('Failed to add to queue', 'error');
+            }
+          } catch (e) {
+            this.showToast(e.message, 'error');
+          }
+        },
+
+        async removeFromQueue(fileId) {
+          try {
+            const res = await fetch('/api/queue/remove', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ file_id: fileId })
+            });
+            if (res.ok) {
+              await this.fetchQueue();
+              this.showToast('Package removed from queue', 'info');
+            }
+          } catch (e) {
+            this.showToast(e.message, 'error');
+          }
+        },
+
+        async clearQueue() {
+          try {
+            const res = await fetch('/api/queue/clear', { method: 'POST' });
+            if (res.ok) {
+              this.queue = [];
+              this.showToast('Installation queue cleared', 'info');
+            }
+          } catch (e) {
+            this.showToast(e.message, 'error');
+          }
+        },
+
+        async reorderQueue(fromIdx, toIdx) {
+          if (toIdx < 0 || toIdx >= this.queue.length) return;
+          const item = this.queue[fromIdx];
+          try {
+            const res = await fetch('/api/queue/reorder', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ file_id: item.file_id, new_index: toIdx })
+            });
+            if (res.ok) {
+              await this.fetchQueue();
+            }
+          } catch (e) {
+            console.error('Failed to reorder queue', e);
+          }
+        },
+
+        async chainQueue() {
+          try {
+            const res = await fetch('/api/queue/chain', { method: 'POST' });
+            if (res.ok) {
+              await this.fetchQueue();
+              this.showToast('Queue sequenced: Base Game -> Update -> DLC', 'success');
+            }
+          } catch (e) {
+            this.showToast(e.message, 'error');
+          }
+        },
+
+        async startQueue() {
+          if (!this.ps4Online) {
+            this.showToast('Cannot start queue: PS4 is offline', 'error');
+            return;
+          }
+          if (this.queue.length === 0) {
+            this.showToast('Queue is empty', 'info');
+            return;
+          }
+          try {
+            const res = await fetch('/api/queue/start', { method: 'POST' });
+            const data = await res.json();
+            if (data.status === 'success') {
+              this.queueRunning = true;
+              this.showToast('Queue processing started!', 'success');
+              await this.fetchQueue();
+            }
+          } catch (e) {
+            this.showToast(e.message, 'error');
+          }
+        },
+
+        async stopQueue() {
+          try {
+            await fetch('/api/queue/stop', { method: 'POST' });
+            this.queueRunning = false;
+            this.showToast('Queue processing paused', 'info');
+            await this.fetchQueue();
+          } catch (e) {
+            this.showToast(e.message, 'error');
+          }
         },
 
         async installPackage(pkg) {
@@ -671,11 +1096,12 @@
                 }
 
                 // Persist current progress so page refresh is 100% seamless
-                localStorage.setItem('orbis_active_task', JSON.stringify(this.activeTask));
+                localStorage.setItem('orbisend_active_task', JSON.stringify(this.activeTask));
 
                 if (data.percentage >= 100 || data.completed) {
                   this.showToast('Installation Complete!', 'success');
                   this.activeTask.running = false;
+                  localStorage.removeItem('orbisend_active_task');
                   localStorage.removeItem('orbis_active_task');
                 }
               }
@@ -710,6 +1136,7 @@
             body: JSON.stringify({ action: 'stop', task_id: this.activeTask.task_id })
           });
           this.activeTask.running = false;
+          localStorage.removeItem('orbisend_active_task');
           localStorage.removeItem('orbis_active_task');
           this.showToast('Task Cancelled', 'info');
         },
