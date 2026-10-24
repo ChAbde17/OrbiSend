@@ -153,5 +153,129 @@ class TestOrbiSend(unittest.TestCase):
         self.assertEqual(res["percentage"], 25.0)
         self.assertEqual(res["rest_sec"], 120)
 
+    def test_install_queue_operations(self):
+        from core.queue_manager import QueueItem, InstallQueue
+
+        q = InstallQueue()
+        self.assertEqual(q.size(), 0)
+        self.assertIsNone(q.peek())
+        self.assertIsNone(q.pop_next())
+
+        item1 = QueueItem(
+            file_path="/pkg/game1.pkg",
+            file_id="fid_1",
+            title="Bloodborne",
+            title_id="CUSA03173",
+            category="Base Game",
+            version="01.00",
+            file_size=30000000000
+        )
+        item2 = QueueItem(
+            file_path="/pkg/patch1.pkg",
+            file_id="fid_2",
+            title="Bloodborne Patch",
+            title_id="CUSA03173",
+            category="Update / Patch",
+            version="01.09",
+            file_size=5000000000
+        )
+        item3 = QueueItem(
+            file_path="/pkg/dlc1.pkg",
+            file_id="fid_3",
+            title="Old Hunters DLC",
+            title_id="CUSA03173",
+            category="Add-on / DLC",
+            version="01.00",
+            file_size=2000000000
+        )
+
+        q.add(item1)
+        q.add(item2)
+        q.add(item3)
+
+        self.assertEqual(q.size(), 3)
+        self.assertTrue(q.contains("fid_2"))
+        self.assertFalse(q.contains("non_existent"))
+
+        # Test peek without removing
+        peeked = q.peek()
+        self.assertEqual(peeked.file_id, "fid_1")
+        self.assertEqual(q.size(), 3)
+
+        # Test reorder (move item3 to index 0)
+        reordered = q.reorder("fid_3", 0)
+        self.assertTrue(reordered)
+        self.assertEqual(q.peek().file_id, "fid_3")
+
+        # Move back to index 2
+        q.reorder("fid_3", 2)
+        self.assertEqual(q.peek().file_id, "fid_1")
+
+        # Test remove by file_id
+        removed = q.remove("fid_2")
+        self.assertTrue(removed)
+        self.assertEqual(q.size(), 2)
+        self.assertFalse(q.contains("fid_2"))
+
+        # Test pop_next
+        popped = q.pop_next()
+        self.assertEqual(popped.file_id, "fid_1")
+        self.assertEqual(q.size(), 1)
+
+        # Test clear
+        q.clear()
+        self.assertEqual(q.size(), 0)
+        self.assertIsNone(q.pop_next())
+
+    def test_queue_patch_chaining(self):
+        from core.queue_manager import QueueItem, InstallQueue
+
+        # Test auto-ordering: Base Game -> Patch 1.01 -> Patch 1.05 -> DLC
+        dlc = QueueItem(
+            file_path="/pkg/bb_dlc.pkg",
+            file_id="dlc",
+            title="Bloodborne DLC",
+            title_id="CUSA03173",
+            category="Add-on / DLC",
+            version="01.00",
+            file_size=1000
+        )
+        patch_05 = QueueItem(
+            file_path="/pkg/bb_p5.pkg",
+            file_id="patch5",
+            title="Bloodborne Update 1.05",
+            title_id="CUSA03173",
+            category="Update / Patch",
+            version="01.05",
+            file_size=2000
+        )
+        patch_01 = QueueItem(
+            file_path="/pkg/bb_p1.pkg",
+            file_id="patch1",
+            title="Bloodborne Update 1.01",
+            title_id="CUSA03173",
+            category="Update / Patch",
+            version="01.01",
+            file_size=2000
+        )
+        base = QueueItem(
+            file_path="/pkg/bb_base.pkg",
+            file_id="base",
+            title="Bloodborne Base Game",
+            title_id="CUSA03173",
+            category="Base Game",
+            version="01.00",
+            file_size=5000
+        )
+
+        unorganized = [dlc, patch_05, base, patch_01]
+        chained = InstallQueue.chain_packages(unorganized)
+
+        self.assertEqual(len(chained), 4)
+        self.assertEqual(chained[0].file_id, "base")
+        self.assertEqual(chained[1].file_id, "patch1")
+        self.assertEqual(chained[2].file_id, "patch5")
+        self.assertEqual(chained[3].file_id, "dlc")
+
 if __name__ == "__main__":
     unittest.main()
