@@ -12,6 +12,7 @@ from core.parser import PKGParser
 from core.network import NetworkManager
 from core.server import PKGServerManager, stats, SilentThreadingHTTPServer
 from core.ps4_client import PS4Client
+from core.queue_manager import QueueItem, InstallQueue
 
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
 WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
@@ -61,6 +62,12 @@ class AppState:
         self._ps4_poll_thread = None
         self._ps4_poll_running = False
 
+        # Installation Queue State
+        self.install_queue = InstallQueue()
+        self._queue_running = False
+        self._queue_thread = None
+        self._active_queue_item: Optional[QueueItem] = None
+
     def start_ps4_polling(self, task_id: int):
         with self._lock:
             if self._ps4_poll_running:
@@ -79,9 +86,130 @@ class AppState:
                 res = self.ps4.get_progress(task_id)
                 with self._lock:
                     self._ps4_progress_cache[task_id] = res
+
+                    # Headless completion detection for queue auto-advance
+                    if res.get("state") in (3, 5) or (res.get("transferred", 0) >= res.get("total", 1) and res.get("total", 0) > 0):
+                        if self.active_task:
+                            self.active_task["running"] = False
+                            self.active_task["percentage"] = 100.0
             except Exception:
                 pass
             time.sleep(1.5)
+
+    def make_queue_item(self, file_path: str) -> Optional[QueueItem]:
+        """Inspects and registers a PKG file, returning a QueueItem."""
+        if not os.path.isfile(file_path):
+            return None
+        file_id = hashlib.md5(file_path.encode("utf-8")).hexdigest()[:12]
+        self.stream_server.register_package(file_id, file_path)
+        meta = PKGParser.parse_pkg(file_path, extract_icon=True)
+        fsize = os.path.getsize(file_path)
+        filename = os.path.basename(file_path)
+
+        return QueueItem(
+            file_path=file_path,
+            file_id=file_id,
+            title=meta.get("title") or filename,
+            title_id=meta.get("title_id", ""),
+            category=meta.get("category", "Package"),
+            version=meta.get("version", "01.00"),
+            file_size=fsize,
+            icon_base64=meta.get("icon_base64"),
+            status="pending"
+        )
+
+    def start_queue_processing(self) -> bool:
+        """Starts background worker to install queued packages sequentially."""
+        with self._lock:
+            if self._queue_running:
+                return True
+            if self.install_queue.size() == 0 and not (self.active_task and self.active_task.get("running")):
+                return False
+            self._queue_running = True
+            self._queue_thread = threading.Thread(target=self._queue_worker, daemon=True)
+            self._queue_thread.start()
+            return True
+
+    def stop_queue_processing(self):
+        """Stops sequential queue processing."""
+        with self._lock:
+            self._queue_running = False
+
+    def _queue_worker(self):
+        """Background thread worker that installs PKGs in order."""
+        print("[Queue Worker] Background queue processing active.")
+        while self._queue_running:
+            # 1. If a task is currently actively transferring, wait for completion
+            if self.active_task and self.active_task.get("running"):
+                time.sleep(1.5)
+                continue
+
+            # 2. Dequeue next item
+            item = self.install_queue.pop_next()
+            if item is None:
+                print("[Queue Worker] All queued packages completed.")
+                with self._lock:
+                    self._queue_running = False
+                    self._active_queue_item = None
+                break
+
+            with self._lock:
+                self._active_queue_item = item
+                item.status = "installing"
+
+            # 3. Trigger installation via PS4 Client
+            file_id = item.file_id
+            file_path = item.file_path
+            server_ip = self.config.get("server_ip") or NetworkManager.get_local_ip_for_target(self.config["ps4_ip"])
+            port = self.config.get("server_port", 8080)
+            clean_url = f"http://{server_ip}:{port}/pkg/{file_id}.pkg"
+
+            print(f"\n[Queue Worker] Installing next package: {item.title} ({clean_url})")
+
+            install_res = self.ps4.install([clean_url], timeout=120.0)
+            task_id = install_res.get("task_id")
+
+            if task_id is not None:
+                self.ps4.start_task(task_id)
+                self.ps4.resume_task(task_id)
+
+                self.active_task = {
+                    "running": True,
+                    "task_id": task_id,
+                    "file_id": file_id,
+                    "title": item.title,
+                    "title_id": item.title_id,
+                    "category": item.category,
+                    "filename": os.path.basename(file_path),
+                    "file_path": file_path,
+                    "file_size": item.file_size,
+                    "icon": item.icon_base64,
+                    "percentage": 0.0,
+                    "speed_mb": 0.0,
+                    "transferred_gb": "0.00",
+                    "total_gb": f"{item.file_size / (1024**3):.2f}",
+                    "eta": "Calculating...",
+                    "start_time": time.time(),
+                    "from_queue": True
+                }
+                self.start_ps4_polling(task_id)
+
+                # Wait for current install to finish
+                while self._queue_running:
+                    time.sleep(1.5)
+                    if not self.active_task or not self.active_task.get("running"):
+                        item.status = "completed"
+                        print(f"[Queue Worker] Successfully finished: {item.title}")
+                        break
+            else:
+                print(f"[!] [Queue Worker] PS4 rejected install for {item.title}: {install_res.get('error')}")
+                item.status = "failed"
+                time.sleep(2.0)
+
+        with self._lock:
+            self._queue_running = False
+            self._active_queue_item = None
+        print("[Queue Worker] Background queue processing stopped.")
 
     def update_config(self, new_cfg: dict):
         with self._lock:
@@ -259,6 +387,16 @@ class WebDashboardHandler(SimpleHTTPRequestHandler):
             self.send_json(res)
             return
 
+        if path == "/api/queue":
+            self.send_json({
+                "status": "success",
+                "queue": state.install_queue.get_all(),
+                "running": state._queue_running,
+                "count": state.install_queue.size(),
+                "active_queue_item": state._active_queue_item.to_dict() if state._active_queue_item else None
+            })
+            return
+
         # Serve static Web Dashboard index.html
         if path == "/" or not os.path.exists(os.path.join(WEB_DIR, path.lstrip("/"))):
             self.path = "/index.html"
@@ -309,6 +447,15 @@ class WebDashboardHandler(SimpleHTTPRequestHandler):
             except Exception as e:
                 self.send_json({"error": str(e), "packages": []}, 500)
                 return
+
+            # Optional server-side sorting
+            sort_by = payload.get("sort_by")
+            reverse = payload.get("reverse", False)
+            if sort_by:
+                packages.sort(
+                    key=lambda p: (p.get(sort_by) or 0) if sort_by == "file_size" else str(p.get(sort_by) or "").lower(),
+                    reverse=reverse
+                )
 
             self.send_json({"status": "success", "packages": packages, "count": len(packages), "deep_scan": deep_scan})
             return
@@ -394,6 +541,110 @@ class WebDashboardHandler(SimpleHTTPRequestHandler):
                 res = {"error": "Invalid action"}
 
             self.send_json(res)
+            return
+
+        # Queue Management Endpoints
+        if path == "/api/queue/add":
+            paths = payload.get("paths", [])
+            if not paths:
+                p = payload.get("path")
+                if p:
+                    paths = [p]
+
+            auto_chain = payload.get("auto_chain", True)
+            items = []
+            for p in paths:
+                if not os.path.isfile(p):
+                    continue
+                item = state.make_queue_item(p)
+                if item:
+                    items.append(item)
+
+            if auto_chain and len(items) > 1:
+                items = InstallQueue.chain_packages(items)
+
+            state.install_queue.add_many(items)
+
+            if payload.get("auto_start", False) and not state._queue_running:
+                state.start_queue_processing()
+
+            self.send_json({
+                "status": "success",
+                "added_count": len(items),
+                "queue": state.install_queue.get_all(),
+                "queue_size": state.install_queue.size(),
+                "running": state._queue_running
+            })
+            return
+
+        if path == "/api/queue/remove":
+            file_id = payload.get("file_id")
+            if not file_id:
+                self.send_json({"error": "Missing file_id"}, 400)
+                return
+
+            removed = state.install_queue.remove(file_id)
+            self.send_json({
+                "status": "success",
+                "removed": removed,
+                "queue": state.install_queue.get_all(),
+                "queue_size": state.install_queue.size()
+            })
+            return
+
+        if path == "/api/queue/clear":
+            state.install_queue.clear()
+            self.send_json({
+                "status": "success",
+                "queue": [],
+                "queue_size": 0
+            })
+            return
+
+        if path == "/api/queue/reorder":
+            file_id = payload.get("file_id")
+            new_index = payload.get("new_index")
+            if file_id is None or new_index is None:
+                self.send_json({"error": "Missing file_id or new_index"}, 400)
+                return
+
+            success = state.install_queue.reorder(file_id, int(new_index))
+            self.send_json({
+                "status": "success" if success else "fail",
+                "queue": state.install_queue.get_all(),
+                "queue_size": state.install_queue.size()
+            })
+            return
+
+        if path == "/api/queue/chain":
+            all_items = [state.install_queue.get_item(d["file_id"]) for d in state.install_queue.get_all()]
+            all_items = [it for it in all_items if it]
+            chained = InstallQueue.chain_packages(all_items)
+            state.install_queue.clear()
+            state.install_queue.add_many(chained)
+            self.send_json({
+                "status": "success",
+                "queue": state.install_queue.get_all(),
+                "queue_size": state.install_queue.size()
+            })
+            return
+
+        if path == "/api/queue/start":
+            started = state.start_queue_processing()
+            self.send_json({
+                "status": "success",
+                "started": started,
+                "running": state._queue_running,
+                "queue_size": state.install_queue.size()
+            })
+            return
+
+        if path == "/api/queue/stop":
+            state.stop_queue_processing()
+            self.send_json({
+                "status": "success",
+                "running": False
+            })
             return
 
         self.send_json({"error": "Endpoint not found"}, 404)
