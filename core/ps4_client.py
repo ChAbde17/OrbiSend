@@ -20,7 +20,17 @@ class PS4Client:
         try:
             with urllib.request.urlopen(req, timeout=timeout) as response:
                 raw = response.read().decode("utf-8", errors="ignore")
-                return json.loads(raw)
+                try:
+                    return json.loads(raw)
+                except Exception:
+                    # Flatz RPI often returns unescaped double quotes in error strings:
+                    # e.g. {"status":"fail","error":"package "Downhill.pkg" is already exist"}
+                    import re
+                    try:
+                        fixed = re.sub(r'("error":\s*")(.+?)("\s*})', lambda m: m.group(1) + m.group(2).replace('"', '\\"') + m.group(3), raw)
+                        return json.loads(fixed)
+                    except Exception:
+                        return {"error": raw, "status": "fail"}
         except urllib.error.HTTPError as e:
             raw = e.read().decode("utf-8", errors="ignore")
             try:
