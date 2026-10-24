@@ -80,6 +80,10 @@ Standard HTTP daemon servers crash or log noisy stack traces (`BrokenPipeError`)
   Automatically probes local network routing tables to detect the true physical IP address matching the PS4's subnet, safely filtering out Docker, loopback, and virtual VM interfaces.
 * **🗂️ Shallow & Recursive Deep Scan**:
   Quickly toggle between top-level folder scanning and full recursive directory traversal to catalog multi-part base games, updates, and DLC packages tucked in subfolders.
+* **📦 Sequential Installation Queue & Smart Patch Chaining**:
+  Batch queue multiple PKGs with automatic dependency ordering (Base Game → Updates sorted by version → DLCs) and sequential unattended background installs.
+* **🎛️ Interactive Dashboard Sorting & Multi-Select**:
+  Sort library by Title, File Size, Type, or CUSA ID with ascending/descending toggles, and select all packages for one-click batch queuing.
 * **🛡️ Collision-Free Sanitized Aliasing**:
   Translates complex package filenames into clean `/pkg/<file_id>.pkg` routes, shielding the PS4's `sceHttp` client from encoding errors.
 * **📊 Live Telemetry & Persistent Progress**:
@@ -218,9 +222,11 @@ While OrbiSend was originally conceived to deliver first-class performance on **
   - [ ] **AppImage**: Single-click standalone executable for all Linux distributions without installing dependencies.
   - [ ] **Flatpak**: Sandboxed distribution via Flathub with native desktop portal integration.
   - [ ] **Native Desktop Shell**: Lightweight native application window using `pywebview` / Tauri v2 to eliminate the need for an external browser.
-- [ ] **Enhanced Installation Queue**:
-  - [ ] Drag-and-drop batch installation queue.
-  - [ ] Automatic multi-part patch chaining (e.g. base game + v01.01 + DLC sequence).
+- [x] **Enhanced Installation Queue**:
+  - [x] Sequential background batch installation queue with auto-advance.
+  - [x] Automatic multi-part patch chaining (Base Game + Patches + DLC sequence).
+  - [x] Multi-select batch controls ("Select All" and "Add Selected to Queue").
+  - [x] Interactive dashboard sorting (Name, Size, Type, Title ID, Subdirectory).
   - [ ] Scheduled background installs with automatic PC shutdown upon completion.
 
 ---
